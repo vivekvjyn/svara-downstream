@@ -14,9 +14,7 @@ class Embedder:
         self.model.eval()
 
         embeddings = np.array([])
-        for i, (input, target) in enumerate(data_loader):
-            self.logger.pbar(i + 1, len(data_loader))
-
+        for i, (input) in enumerate(data_loader):
             embedding = self._embed(input).detach().cpu().numpy()
             embeddings = np.concatenate((embeddings, embedding), axis=0) if embeddings.size else embedding
 

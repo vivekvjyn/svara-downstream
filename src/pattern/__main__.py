@@ -4,6 +4,8 @@ import pickle
 import torch
 import numpy as np
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
+import matplotlib.pyplot as plt
+from scipy.spatial.distance import cosine
 
 from pattern import Model, Evaluator, Embedder, Logger, Dataset, Table, load_pitch
 
@@ -13,27 +15,81 @@ def main():
     args = parse_args()
 
     # Load dataset
-    sections, sections_processed = load_pitch(os.path.join("dataset", "segments.pkl"))
+    sections = load_pitch(os.path.join("dataset", "segments.pkl"))
     with open(os.path.join("dataset", "ids.pkl"), "rb") as f:
         ids = pickle.load(f)
 
-    dataset = Dataset((sections_processed, ids), device)
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    # get count of each id
+    id_counts = {}
+    for id in ids:
+        if id not in id_counts:
+            id_counts[id] = 0
+        id_counts[id] += 1
 
     model = Model(embed_dim=args.embed_dim, num_classes=len(set(ids)), depth=args.depth).to(device)
     model.encoder.load(os.path.join("checkpoints", "encoder.pth"), device)
     embedder = Embedder(model, logger)
-    evaluator = Evaluator(logger)
-    embeddings = embedder(data_loader)
 
-    distances = np.zeros((len(embeddings)))
-    query_embedding = embeddings[0]
-    query_id = ids[0]
-    for i, embedding in enumerate(embeddings):
-        distance = np.linalg.norm(query_embedding - embedding)
-        distances[i] = distance
+    map = []
+    mrr = []
+    mean_precision = []
+    for i in range(len(sections)):
+        distances = np.zeros((len(sections)))
+        for j in range(len(sections)):
+            logger.pbar(j + 1, len(sections))
+            distance = 0
 
-        print(f"Query ID: {query_id}, Target ID: {ids[i]}, Distance: {distance:.4f}")
+            window_size = 200
+
+            for l in range(0, len(sections) + window_size, window_size):
+                window_i = sections[i][l:l+window_size]
+                window_j = sections[j][l:l+window_size]
+
+                if not window_i.shape[0] and window_j.shape[0]:
+                    break
+
+                data_loader_i = torch.utils.data.DataLoader(Dataset((np.array([window_i])), device), batch_size=args.batch_size, shuffle=False, num_workers=0)
+                data_loader_j = torch.utils.data.DataLoader(Dataset((np.array([window_j])), device), batch_size=args.batch_size, shuffle=False, num_workers=0)
+                embedding_i = embedder(data_loader_i)
+                embedding_j = embedder(data_loader_j)
+                distance += np.linalg.norm(embedding_i - embedding_j)
+                # cosine
+                #distance += cosine(embedding_i.flatten(), embedding_j.flatten())
+
+            distances[j] = distance
+
+        ranking = np.argsort(distances)
+        ranking = ranking[ranking != i]
+        ranked_ids = np.array(ids)[ranking]
+        positives = np.where(ranked_ids == ids[i])[0]
+
+        # reciprocal rank
+        rr = 1 / (positives[0] + 1)
+
+        precision_at_10 = np.sum(positives < 10) / 10
+
+        precisions = []
+        for rank_idx in positives:
+            precision_at_rank = np.sum(positives <= rank_idx) / (rank_idx + 1)
+            precisions.append(precision_at_rank)
+
+        ap = np.mean(precisions)
+
+        map.append(ap)
+        mrr.append(rr)
+        mean_precision.append(precision_at_10)
+
+        print(f"\nAP for section {i} ID {ids[i]}: {ap}")
+        print(f"Reciprocal Rank for section {i} ID {ids[i]}: {rr}")
+        print(f"Precision@10 for section {i} ID {ids[i]}: {precision_at_10}")
+
+    map = np.mean(map)
+    mrr = np.mean(mrr)
+    mean_precision = np.mean(precision_at_10)
+    print(f"MAP: {map}")
+    print(f"MRR: {mrr}")
+    print(f"Mean Precision@10: {mean_precision}")
+
 
 
 
