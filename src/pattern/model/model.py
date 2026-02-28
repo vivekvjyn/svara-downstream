@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from pattern.model.inception import Encoder
 
 class Model(nn.Module):
@@ -13,7 +14,9 @@ class Model(nn.Module):
 
     def forward(self, input):
         embedding = self.encoder(input)
-        return self.gap(embedding)
+        embedding = self.gap(embedding)
+        embedding = F.normalize(embedding, p=2, dim=1)
+        return embedding.squeeze(-1)
 
     def save(self, filename):
         os.makedirs(self.dir, exist_ok=True)

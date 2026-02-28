@@ -7,11 +7,12 @@ class Table:
         os.makedirs(self.dir, exist_ok=True)
         self.filename = 'pattern_ranks.tsv'
 
-    def insert(self, map, mrr, precision_at_k):
+    def insert(self, map, mrr, p1, p5):
         df = pd.DataFrame({
             'map': [map],
             'mrr': [mrr],
-            'p@k': [precision_at_k]
+            'p@1': [p1],
+            'p@5': [p5]
         })
 
         df.to_csv(os.path.join(self.dir, self.filename), sep='\t', index=False)

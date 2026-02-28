@@ -1,96 +1,115 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.cluster import HDBSCAN
-from sklearn.metrics import normalized_mutual_info_score
-from sklearn.preprocessing import MinMaxScaler
-from umap import UMAP
+import seaborn as sns
+import torch
+from sklearn.metrics.pairwise import cosine_similarity
+from torchmetrics.retrieval import RetrievalMAP, RetrievalMRR, RetrievalPrecision
+
+from pattern.modules.dataset import Dataset
 
 class Evaluator:
-    def __init__(self, embedder, logger, window_size=200, timestep=0.0100006335037896):
+    def __init__(self, embedder, logger, device, window_size=100):
         self.embedder = embedder
-        self.timestep = timestep
         self.logger = logger
         self.window_size = window_size
+        self.device = device
 
-    def __call__(self, sections, ids, k=10):
-        distance_matrix = self._distance_matrix(sections)
+    def __call__(self, sequences, ids):
+        similarity_matrix = self._similarity_matrix(sequences)
 
-        map = self._mean_average_precision(distance_matrix, ids)
-        mrr = self._mean_reciprocal_rank(distance_matrix, ids)
-        precision_at_k = self._precision_at_k(distance_matrix, ids, k=k)
+        map, mrr, p1, p5 = self._evaluate(similarity_matrix, ids)
 
         self.logger(f'MAP: {map:.8f}')
         self.logger(f'MRR: {mrr:.8f}')
-        self.logger(f'Precision@{k}: {precision_at_k:.8f}')
+        self.logger(f'Precision@1: {p1:.8f}')
+        self.logger(f'Precision@5: {p5:.8f}')
 
-        return map, mrr, precision_at_k
+        self._boxplot(similarity_matrix, ids)
 
+        return map, mrr, p1, p5
 
-    def _distance_matrix(sections):
-        distance_matrix = np.zeros((len(sections), len(sections)))
+    def _similarity_matrix(self, sequences):
+        similarity_matrix = np.zeros((len(sequences), len(sequences)))
 
-        for i in range(len(sections)):
-            for j in range(len(sections)):
-                logger.pbar(j + 1, len(sections))
+        for i in range(len(sequences)):
+            self.logger(f"[{i + 1}/{len(sequences)}]")
+            for j in range(len(sequences)):
+                self.logger.pbar(j + 1, len(sequences))
 
-                distance = 0
-                for l in range(0, len(sections) + window_size, window_size):
-                    x = sections[i][l:l+window_size]
-                    y = sections[j][l:l+window_size]
+                similarities = []
+                for l in range(0, len(sequences) + self.window_size, self.window_size):
+                    x = sequences[i][l:l+self.window_size]
+                    y = sequences[j][l:l+self.window_size]
 
                     if not x.shape[0] or not y.shape[0]:
                         break
 
-                    x_loader = torch.utils.data.DataLoader(Dataset((np.array([x])), device), batch_size=args.batch_size, shuffle=False, num_workers=0)
-                    y_loader = torch.utils.data.DataLoader(Dataset((np.array([y])), device), batch_size=args.batch_size, shuffle=False, num_workers=0)
-                    x_embedding = embedder(x_loader)
-                    y_embedding = embedder(y_loader)
-                    distance += np.linalg.norm(x_embedding - y_embedding)
+                    x_loader = torch.utils.data.DataLoader(Dataset((np.array([x])), self.device), batch_size=1, shuffle=False, num_workers=0)
+                    y_loader = torch.utils.data.DataLoader(Dataset((np.array([y])), self.device), batch_size=1, shuffle=False, num_workers=0)
+                    x_embedding = self.embedder(x_loader)
+                    y_embedding = self.embedder(y_loader)
+                    similarities.append(cosine_similarity(x_embedding, y_embedding)[0][0])
 
-                distance_matrix[i, j] = distance
+                similarity_matrix[i][j] = np.mean(similarities)
 
-        return distance_matrix
+        return torch.tensor(similarity_matrix, dtype=torch.float32).to(self.device)
 
-    def _mean_average_precision(self, distance_matrix, ids):
-        map = []
-        for i in range(len(sections)):
-            ranking = np.argsort(distance_matrix[i])
-            ranking = ranking[ranking != i]
-            ranked_ids = np.array(ids)[ranking]
-            positives = np.where(ranked_ids == ids[i])[0]
+    def _evaluate(self, similarity_matrix, ids):
+        preds = similarity_matrix.clone()
+        preds[torch.eye(len(ids), dtype=bool)] = -torch.inf
+        preds = preds.flatten()
+        targets = (ids[:, None] == ids[None, :])
+        targets[torch.eye(len(ids), dtype=bool)] = False
+        targets = targets.flatten()
+        indexes = torch.arange(len(ids)).to(self.device).repeat_interleave(len(ids))
 
-            precisions = []
-            for rank_idx in positives:
-                precision_at_rank = np.sum(positives <= rank_idx) / (rank_idx + 1)
-                precisions.append(precision_at_rank)
+        map = RetrievalMAP()(preds, targets, indexes)
+        mrr = RetrievalMRR()(preds, targets, indexes)
+        p1 = RetrievalPrecision(top_k=1)(preds, targets, indexes)
+        p5 = RetrievalPrecision(top_k=5)(preds, targets, indexes)
 
-            ap = np.mean(precisions)
-            map.append(ap)
+        return map.item(), mrr.item(), p1.item(), p5.item()
 
-        return np.mean(map)
+    def _boxplot(self, similarity_matrix, ids):
+        average_precisions = {torch.unique(ids)[i].item(): [] for i in range(len(torch.unique(ids)))}
+        reciprocal_ranks = {torch.unique(ids)[i].item(): [] for i in range(len(torch.unique(ids)))}
+        precision1 = {torch.unique(ids)[i].item(): [] for i in range(len(torch.unique(ids)))}
+        precision5 = {torch.unique(ids)[i].item(): [] for i in range(len(torch.unique(ids)))}
 
-    def _mean_reciprocal_rank(self, distance_matrix, ids):
-        mrr = []
-        for i in range(len(sections)):
-            ranking = np.argsort(distance_matrix[i])
-            ranking = ranking[ranking != i]
-            ranked_ids = np.array(ids)[ranking]
-            positives = np.where(ranked_ids == ids[i])[0]
+        for i in range(similarity_matrix.shape[0]):
+            preds = similarity_matrix[i].clone()
+            preds[i] = -torch.inf
+            targets = (ids == ids[i])
+            targets[i] = False
+            indexes = torch.zeros_like(ids).long()
 
-            rr = 1 / (positives[0] + 1)
-            mrr.append(rr)
+            map = RetrievalMAP()(preds, targets, indexes)
+            mrr = RetrievalMRR()(preds, targets, indexes)
+            p1_score = RetrievalPrecision(top_k=1)(preds, targets, indexes)
+            p5_score = RetrievalPrecision(top_k=5)(preds, targets, indexes)
 
-        return np.mean(mrr)
+            average_precisions[ids[i].item()].append(map.item())
+            reciprocal_ranks[ids[i].item()].append(mrr.item())
+            precision1[ids[i].item()].append(p1_score.item())
+            precision5[ids[i].item()].append(p5_score.item())
 
-    def _precision_at_k(self, distance_matrix, ids, k=10):
-        precision_at_k = []
-        for i in range(len(sections)):
-            ranking = np.argsort(distance_matrix[i])
-            ranking = ranking[ranking != i]
-            ranked_ids = np.array(ids)[ranking]
-            positives = np.where(ranked_ids == ids[i])[0]
+        self._plot(average_precisions, "MAP")
+        self._plot(reciprocal_ranks, "MRR")
+        self._plot(precision1, "Precision@1")
+        self._plot(precision5, "Precision@5")
 
-            precision_at_k.append(np.sum(positives < k) / k)
 
-        return np.mean(precision_at_k)
+    def _plot(self, data, metric):
+        plt.figure(figsize=(10, 6))
+        sns.boxplot(data=[data[id] for id in sorted(data.keys())], palette="tab10")
+        plt.xticks(ticks=range(len(data)), labels=sorted(data.keys()))
+        plt.xlabel("Phrase ID")
+        plt.ylabel(f"{metric}")
+        plt.title(f"Phrase-wise {metric}")
+        plt.ylim(0, 1)
+        plt.tight_layout()
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        os.makedirs('results', exist_ok=True)
+        plt.savefig(os.path.join('results', f"{metric.lower()}.png"))
+        plt.close()
