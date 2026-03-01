@@ -1,5 +1,5 @@
 dataset/
 checkpoints/
-runs/
+logs/
 **/__pycache__/
 *.egg-info/
