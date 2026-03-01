@@ -38,15 +38,11 @@ class Evaluator:
                 self.logger.pbar(j + 1, len(sequences))
 
                 similarities = []
-                for l in range(0, len(sequences) + self.window_size, self.window_size):
-                    x = sequences[i][l:l+self.window_size]
-                    y = sequences[j][l:l+self.window_size]
+                x_chunks, y_chunks, num_splits = self._split(sequences[i], sequences[j], self.window_size)
 
-                    if not x.shape[0] or not y.shape[0]:
-                        break
-
-                    x_loader = torch.utils.data.DataLoader(Dataset((np.array([x])), self.device), batch_size=1, shuffle=False, num_workers=0)
-                    y_loader = torch.utils.data.DataLoader(Dataset((np.array([y])), self.device), batch_size=1, shuffle=False, num_workers=0)
+                for k in range(num_splits):
+                    x_loader = torch.utils.data.DataLoader(Dataset((np.array([x_chunks[k]])), self.device), batch_size=1, shuffle=False, num_workers=0)
+                    y_loader = torch.utils.data.DataLoader(Dataset((np.array([y_chunks[k]])), self.device), batch_size=1, shuffle=False, num_workers=0)
                     x_embedding = self.embedder(x_loader)
                     y_embedding = self.embedder(y_loader)
                     similarities.append(cosine_similarity(x_embedding, y_embedding)[0][0])
@@ -54,6 +50,17 @@ class Evaluator:
                 similarity_matrix[i][j] = np.mean(similarities)
 
         return torch.tensor(similarity_matrix, dtype=torch.float32).to(self.device)
+
+    def _split(self, x, y, window_size=200):
+        num_splits = max(len(x), len(y)) // window_size
+        num_splits = max(1, num_splits)
+
+        split_sizes = (len(x) // num_splits, len(y) // num_splits)
+
+        x_splits = [x[i*split_sizes[0] : (i+1)*split_sizes[0]] for i in range(num_splits)]
+        y_splits = [y[i*split_sizes[1] : (i+1)*split_sizes[1]] for i in range(num_splits)]
+
+        return x_splits, y_splits, num_splits
 
     def _evaluate(self, similarity_matrix, ids):
         preds = similarity_matrix.clone()

@@ -2,14 +2,14 @@ import torch
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, data, device):
-        self.section = torch.tensor(data, dtype=torch.float32).to(device)
+        self.sequences = torch.tensor(data, dtype=torch.float32).to(device)
 
     def __len__(self):
-        return len(self.section)
+        return len(self.sequences)
 
     def __getitem__(self, idx):
-        section = self.section[idx].unsqueeze(0)
-        return section
+        sequence = self.sequences[idx].unsqueeze(0)
+        return sequence
 
     def __str__(self):
         num_samples = len(self)

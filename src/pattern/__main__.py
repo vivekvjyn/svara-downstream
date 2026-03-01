@@ -2,27 +2,25 @@ import os
 import argparse
 import pickle
 import torch
+from logger import Logger
 
-from pattern import Model, Evaluator, Embedder, Logger, Table, load_pitch
+from pattern import Model, Evaluator, Embedder, Table
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger = Logger()
+    logger = Logger(log_dir="logs")
     args = parse_args()
 
-    sections = load_pitch(os.path.join("dataset", "segments.pkl"))
+    with open(os.path.join("dataset", "segments.pkl"), "rb") as f:
+        sequences = pickle.load(f)
     with open(os.path.join("dataset", "ids.pkl"), "rb") as f:
-        ids = torch.tensor(pickle.load(f)).to(device)
+        labels = torch.tensor(pickle.load(f)).to(device)
 
-    sections=sections[:30]
-    ids=ids[:30]
-
-    model = Model(embed_dim=args.embed_dim, num_classes=len(set(ids)), depth=args.depth).to(device)
+    model = Model(embed_dim=args.embed_dim, num_classes=len(set(labels)), depth=args.depth).to(device)
     model.encoder.load(os.path.join("checkpoints", "encoder.pth"), device)
     embedder = Embedder(model, logger)
     evaluator = Evaluator(embedder, logger, device, args.window_size)
-    map, mrr, p1, p5 = evaluator(sections, ids)
-
+    map, mrr, p1, p5 = evaluator(sequences, labels)
     table = Table()
     table.insert(map, mrr, p1, p5)
 

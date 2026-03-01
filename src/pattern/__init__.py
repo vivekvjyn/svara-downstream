@@ -16,9 +16,7 @@ from .model.model import Model
 from .model.inception import Encoder
 from .modules.evaluator import Evaluator
 from .modules.embedder import Embedder
-from .modules.logger import Logger
 from .modules.dataset import Dataset
 from .modules.table import Table
-from .modules.utils import load_pitch
 
-__all__ = ["Model", "Encoder", "Evaluator", "Embedder", "Logger", "Dataset", "Table", "load_pitch"]
+__all__ = ["Model", "Encoder", "Evaluator", "Embedder", "Dataset", "Table"]
