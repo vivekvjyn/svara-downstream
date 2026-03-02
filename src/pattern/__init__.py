@@ -18,5 +18,6 @@ from .modules.evaluator import Evaluator
 from .modules.embedder import Embedder
 from .modules.dataset import Dataset
 from .modules.table import Table
+from .modules.utils import load_pitch
 
-__all__ = ["Model", "Encoder", "Evaluator", "Embedder", "Dataset", "Table"]
+__all__ = ["Model", "Encoder", "Evaluator", "Embedder", "Dataset", "Table", "load_pitch"]

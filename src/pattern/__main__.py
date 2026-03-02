@@ -4,15 +4,14 @@ import pickle
 import torch
 from logger import Logger
 
-from pattern import Model, Evaluator, Embedder, Table
+from pattern import Model, Evaluator, Embedder, Table, load_pitch
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger = Logger(log_dir="logs")
     args = parse_args()
 
-    with open(os.path.join("dataset", "segments.pkl"), "rb") as f:
-        sequences = pickle.load(f)
+    sequences = load_pitch(os.path.join("dataset", "segments.pkl"))
     with open(os.path.join("dataset", "ids.pkl"), "rb") as f:
         labels = torch.tensor(pickle.load(f)).to(device)
 

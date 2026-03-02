@@ -45,8 +45,7 @@ class Evaluator:
                     y_loader = torch.utils.data.DataLoader(Dataset((np.array([y_chunks[k]])), self.device), batch_size=1, shuffle=False, num_workers=0)
                     x_embedding = self.embedder(x_loader)
                     y_embedding = self.embedder(y_loader)
-                    #similarities.append(cosine_similarity(x_embedding, y_embedding)[0][0])
-                    similarities.append(1 / np.linalg.norm(x_embedding - y_embedding))
+                    similarities.append(cosine_similarity(x_embedding, y_embedding)[0][0])
 
                 similarity_matrix[i][j] = np.mean(similarities)
 
@@ -115,7 +114,7 @@ class Evaluator:
         plt.xlabel("Phrase ID")
         plt.ylabel(f"{metric}")
         plt.title(f"Phrase-wise {metric}")
-        plt.ylim(0, 1)
+        plt.ylim(-0.1, 1.1)
         plt.tight_layout()
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         os.makedirs('results', exist_ok=True)
