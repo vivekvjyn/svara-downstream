@@ -45,7 +45,8 @@ class Evaluator:
                     y_loader = torch.utils.data.DataLoader(Dataset((np.array([y_chunks[k]])), self.device), batch_size=1, shuffle=False, num_workers=0)
                     x_embedding = self.embedder(x_loader)
                     y_embedding = self.embedder(y_loader)
-                    similarities.append(cosine_similarity(x_embedding, y_embedding)[0][0])
+                    #similarities.append(cosine_similarity(x_embedding, y_embedding)[0][0])
+                    similarities.append(1 / np.linalg.norm(x_embedding - y_embedding))
 
                 similarity_matrix[i][j] = np.mean(similarities)
 
